@@ -18,7 +18,7 @@ PYTHON="$TAU3_DIR/.venv/bin/python3"
 # ── Settings ─────────────────────────────────────────────────────────────────
 AGENT_LLM="anthropic/claude-haiku-4-5-20251001"
 USER_LLM="openai/gpt-4.1"
-MAX_CONCURRENCY=3
+MAX_CONCURRENCY=1
 MAX_STEPS=200
 TIMEOUT=1800  # 30 minutes
 
