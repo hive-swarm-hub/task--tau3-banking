@@ -87,5 +87,4 @@ print(f'  banking_knowledge domain: {len(tasks)} tasks loaded')
 echo ""
 echo "=== Preparation complete ==="
 echo "Make sure these env vars are set before running eval:"
-echo "  ANTHROPIC_API_KEY  (for agent LLM: claude-haiku-4-5)"
-echo "  OPENAI_API_KEY     (for user simulator: gpt-4.1)"
+echo "  OPENAI_API_KEY     (for agent LLM: gpt-5.4-mini and user simulator: gpt-4.1)"

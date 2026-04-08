@@ -15,8 +15,23 @@ Key areas to explore:
 - Reasoning patterns (ReAct, chain-of-thought, multi-step planning)
 - Tool use strategy (when to call discoverable tools, verification steps)
 - Error recovery (handling tool failures, retries)
+
+Key reference files in tau3-bench/:
+- data/tau2/domains/banking_knowledge/prompts/components/policy_header.md
+- data/tau2/domains/banking_knowledge/prompts/components/additional_instructions.md
+- data/tau2/domains/banking_knowledge/prompts/classic_rag_bm25_no_grep.md
+- data/tau2/domains/banking_knowledge/documents/  (698 KB documents)
+- data/tau2/domains/banking_knowledge/tasks/       (97 task JSONs)
+- src/tau2/domains/banking_knowledge/tools.py       (all agent tools)
+- src/tau2/domains/banking_knowledge/retrieval.py   (retrieval configs & prompt building)
+
+NOTE: The domain_policy passed to your agent already contains authentication
+instructions, discoverable tool workflows, and KB search guidance. See
+program.md "Understanding the agent environment" for details.
 """
 
+import json
+import os
 from typing import Optional
 
 from tau2.agent.base_agent import HalfDuplexAgent, ValidAgentInputMessage
@@ -29,6 +44,9 @@ from tau2.data_model.message import (
 )
 from tau2.environment.toolkit import Tool
 from tau2.utils.llm_utils import generate
+
+# Set TRACE_LOGGING=1 to dump per-turn messages to stderr for debugging.
+TRACE_LOGGING = os.environ.get("TRACE_LOGGING", "") == "1"
 
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -107,6 +125,18 @@ class BankingAgent(HalfDuplexAgent[AgentState]):
             messages=state.system_messages + state.messages,
             **self.llm_args,
         )
+
+        if TRACE_LOGGING:
+            import sys
+            trace = {"role": "assistant"}
+            if hasattr(response, "content") and response.content:
+                trace["content"] = response.content[:200]
+            if hasattr(response, "tool_calls") and response.tool_calls:
+                trace["tool_calls"] = [
+                    {"name": tc.function.name, "args": tc.function.arguments[:100]}
+                    for tc in response.tool_calls
+                ]
+            print(f"[TRACE] {json.dumps(trace)}", file=sys.stderr)
 
         state.messages.append(response)
         return response, state
