@@ -1,109 +1,222 @@
 # tau3-banking
 
-Improve a banking customer service agent evaluated on the tau3-bench banking_knowledge benchmark. Score = pass@1 (fraction of tasks where all required database updates match the gold standard).
+Optimize a banking customer service agent on the tau3-bench `banking_knowledge`
+domain. The metric is **pass^1**: the fraction of tasks where the agent's
+final database state matches the gold standard on a single trial.
+
+You evolve `agent.py`, and only `agent.py`. Everything else is infrastructure.
+
+---
 
 ## Setup
 
 1. **Read the in-scope files**:
-   - `agent.py` — the banking agent implementation. You modify this.
-   - `eval/eval.sh` — runs evaluation against 25 tasks. Do not modify.
-   - `prepare.sh` — clones tau3-bench and installs dependencies. Do not modify.
-2. **Run prepare**: `bash prepare.sh` to clone tau3-bench and install dependencies.
-3. **Verify setup**: Check that `tau3-bench/` exists and contains the tau3-bench framework.
-4. **Initialize results.tsv**: Create `results.tsv` with just the header row.
-5. **Run baseline**: `bash eval/eval.sh` to establish the starting score.
+   - `agent.py` — the agent under optimization. You modify this.
+   - `eval/eval.sh` and `eval/run_eval.py` — the eval harness. Do not modify.
+   - `prepare.sh` — installs tau2-bench, Python deps, and sandbox-runtime.
+     Do not modify.
+2. **Run prepare**: `bash prepare.sh` (idempotent — safe to re-run).
+3. **Verify env**: `echo $OPENAI_API_KEY` — must be set.
+4. **Initialize results.tsv**: create `results.tsv` with the header row only.
+5. **Run a baseline**: `bash eval/eval.sh` (fast mode, 20 tasks). Record the
+   score in `results.tsv`.
 
-Use `SAMPLE_FRAC=0.2 bash eval/eval.sh` to run on ~5 tasks for fast iteration. Use `SAMPLE_FRAC=1.0` (default) for full evaluation. Use `MAX_CONCURRENCY=4` if you hit rate limits (default is 16, which can trigger 429 errors with mini-class models).
+---
 
 ## The benchmark
 
-The tau3-bench banking_knowledge domain tests an agent's ability to act as a banking customer service representative. The agent converses with a simulated user (powered by gpt-4.1), searches a knowledge base of ~700 documents covering banking products and policies, reasons over complex interdependent policies, and executes multi-step tool calls to resolve customer requests. There are 97 total tasks; the eval runs 25 representative ones. Tasks include opening accounts, disputing transactions, handling referrals, and more. Success requires getting the final database state exactly right.
+`banking_knowledge` is a knowledge-retrieval customer service domain with 97
+multi-turn tasks. In each task the agent must:
 
-## Experimentation
+- Authenticate the customer (verify 2 of 4: DOB, email, phone, address).
+- Search a knowledge base of 698 documents covering products, fees,
+  eligibility rules, dispute procedures, and other policies.
+- Discover and call 51 "discoverable" tools that are referenced only inside
+  the KB documents — the agent finds them by reading the KB.
+- Use 14 always-available banking tools to read and modify a transactional
+  database.
+- End the conversation with the database in the exact correct state.
 
-**What you CAN do:**
-- Modify `agent.py` — change the agent class, system prompt, retrieval strategy, reasoning approach, tool use patterns, error handling, etc.
-- Add helper Python modules that `agent.py` imports (e.g., `prompts.py`, `retrieval.py`, `utils.py`).
-- Change the `RETRIEVAL_VARIANT` and `RETRIEVAL_KWARGS` in `agent.py`. Available retrieval configs:
-  - `bm25` — offline BM25 keyword search via `KB_search` tool
-  - `openai_embeddings` — embedding-based search via `KB_search`
-  - `qwen_embeddings` — embedding search via OpenRouter (needs `OPENROUTER_API_KEY`)
-  - `grep_only` — grep-based search via `grep` tool
-  - `full_kb` — entire knowledge base in context (no search tool)
-  - `no_knowledge` — no knowledge base access
-  - `golden_retrieval` — oracle retrieval (for reference only)
-- Implement advanced patterns: ReAct, chain-of-thought, multi-step verification, adaptive retrieval.
+A task passes when the final database state matches the gold standard
+(reward = 1.0). pass^1 is the fraction of tasks that pass on a single trial.
 
-**What you CANNOT do:**
-- Modify `eval/`, `prepare.sh`, or test data.
-- Change the agent LLM from `openai/gpt-5.4-mini`.
-- Change the user simulator LLM from `openai/gpt-4.1`.
-- Change the agent temperature from `0.0` or seed from `300`.
-- Use terminal/shell-based retrieval configs (`terminal_use`, `terminal_use_write`).
-- Hardcode answers to specific task IDs.
+The simulated user follows task-specific flow rules and will steer toward
+edge cases. pass^1 across frontier models on this domain ranges from
+roughly 8% to 32% — this is a hard benchmark.
 
-**The goal: maximize pass_at_1.** This is the fraction of the 25 eval tasks where the agent's final database state exactly matches the gold standard. Higher is better. Range: 0.0 to 1.0.
+---
 
-**Simplicity criterion**: All else being equal, prefer fewer lines of code and shorter system prompts. Verbose prompts hurt small models — be specific and concise.
+## Eval modes
 
-## Understanding the agent environment
+`bash eval/eval.sh` runs in `fast` mode by default. Set `EVAL_MODE` for
+the other modes:
 
-The `domain_policy` string passed to your agent is NOT empty — it is a fully assembled prompt built from template files. For the `bm25` variant, it includes:
+| Mode   | Tasks | Trials | Use this when |
+|--------|-------|--------|---------------|
+| `fast`   | 20 fixed | 1 | Every iteration. ~5 minutes. |
+| `full`   | 97 | 1 | Confirming a fast-mode improvement on the full set. |
+| `submit` | 97 | 4 | Producing the canonical 4-trial trajectories. |
 
-1. **Policy header** (`tau3-bench/data/tau2/domains/banking_knowledge/prompts/components/policy_header.md`): Rho-Bank customer service guidelines — don't make up policies, use `get_current_time()`, transfer to human only as last resort, don't leak internal info.
-2. **Retrieval instruction**: "Search the knowledge base using the provided `KB_search` tool."
-3. **Additional instructions** (`tau3-bench/data/tau2/domains/banking_knowledge/prompts/components/additional_instructions.md`): Full discoverable tool workflows (user tools and agent tools), authentication protocol (verify 2 of 4: DOB, email, phone, address), verification logging.
-
-Your agent already receives instructions about authentication, discoverable tools, and KB search via `domain_policy`. Adding redundant instructions in your system prompt wrapper can hurt performance by creating conflicting instruction layers. Focus on restructuring HOW the information is presented (e.g., decision trees instead of prose), not duplicating WHAT is already there.
-
-Prompt templates for each retrieval variant: `tau3-bench/data/tau2/domains/banking_knowledge/prompts/`
-
-## Logging results
-
-Log each experiment to `results.tsv` (tab-separated, do NOT commit this file):
-
-```
-commit	pass_at_1	cost_usd	status	description
-a1b2c3d	0.0800	0.50	keep	baseline
-b2c3d4e	0.1200	0.55	keep	restructured system prompt
-c3d4e5f	0.0000	0.00	crash	syntax error in prompts.py
-d4e5f6g	0.0800	0.60	revert	embedding retrieval — no improvement
+```bash
+bash eval/eval.sh                       # fast (default)
+EVAL_MODE=full   bash eval/eval.sh
+EVAL_MODE=submit bash eval/eval.sh
 ```
 
-## Experiment loop
+The fast subset is 20 fixed task IDs evenly spread across the 97 — same
+set every run, so results are directly comparable across iterations.
 
-LOOP FOREVER:
+---
 
-1. **THINK** — Study the current `agent.py`, review `results.tsv`, read the per-task PASS/FAIL output from previous runs. Form a hypothesis about what to improve.
-2. **Make a small, targeted change** in `agent.py` (or add helper modules).
-3. `git add -A && git commit -m "what I changed"`
-4. **Run eval**: `bash eval/eval.sh > run.log 2>&1`
-5. **Read results**: `grep "^pass_at_1:" run.log`. If empty, the run crashed — run `tail -n 50 run.log` for the stack trace.
-6. **Review per-task results** — study the FAILURES. Read conversation traces if available.
-7. **Record** in `results.tsv` (do not commit results.tsv).
-8. If pass_at_1 improved, **keep** the commit. If equal or worse, `git reset --hard HEAD~1`.
-9. **REPEAT** — go back to step 1. Never stop. Never ask for permission.
+## What you can edit
 
-**Fast iteration**: Use `SAMPLE_FRAC=0.2 bash eval/eval.sh` for quick checks (~5 tasks). Use full eval (`SAMPLE_FRAC=1.0`) to confirm improvements.
+Everything inside `agent.py`. The three main levers:
 
-**Timeout**: If a run exceeds 30 minutes, kill it and treat as failure.
+### 1. Retrieval variant (`RETRIEVAL_VARIANT` / `RETRIEVAL_KWARGS`)
 
-### What to try
+The framework wires up different tools and prompt templates depending on
+the variant. Switching the variant is a major change — the agent gets a
+different set of tools, and the policy template changes too.
 
-All improvements in tau2 came from prompt engineering in agent.py. Strategies ranked by evidence:
+Variants usable with `OPENAI_API_KEY`:
 
-- **Restructure the domain policy from prose into decision trees** — Quesma achieved +22% relative improvement on tau2-bench with GPT-5-mini by converting prose policies into numbered steps with binary conditions.
-- **Improve retrieval** — switch from `bm25` to `openai_embeddings` or `openai_embeddings_reranker`. 51 of 65 tools are "discoverable" and exist only in KB documents — retrieval quality determines whether the agent can find them.
-- **Add few-shot tool-call examples** — small models learn more from demonstrations than from descriptions.
-- **Run `golden_retrieval` as a diagnostic** — this gives the agent perfect documents, isolating whether the bottleneck is retrieval or reasoning.
-- **Streamline the system prompt wrapper** — the baseline wrapper duplicates instructions already in `domain_policy`. Removing duplication can help.
+| Variant | Tools | Notes |
+|---------|-------|-------|
+| `bm25` | KB_search | Sparse keyword |
+| `bm25_grep` | KB_search + grep | Adds regex fallback |
+| `bm25_reranker` | KB_search | Reranks BM25 results with an LLM |
+| `bm25_reranker_grep` | KB_search + grep | Both |
+| `openai_embeddings` | KB_search | Dense, uses `text-embedding-3-large` |
+| `openai_embeddings_grep` | KB_search + grep | + grep |
+| `openai_embeddings_reranker` | KB_search | + LLM reranker |
+| `openai_embeddings_reranker_grep` | KB_search + grep | All four |
+| `grep_only` | grep | Just regex |
+| `terminal_use` | shell | Read-only Unix shell sandbox |
+| `terminal_use_write` | shell | Shell with write access |
+| `no_knowledge` | (none) | No KB at all |
+| `full_kb` | (none) | Whole KB inlined in prompt — token-heavy |
+
+`golden_retrieval` exists but is a diagnostic only — it injects task-specific
+docs into the prompt and is not a valid retrieval method for a real run.
+
+`qwen_*` variants require `OPENROUTER_API_KEY` and are unsupported here.
+
+`RETRIEVAL_KWARGS` overrides knobs like `top_k` (for KB_search) or
+`reranker_min_score` (for `*_reranker` variants).
+
+### 2. The system prompt (`AGENT_INSTRUCTION`, `SYSTEM_PROMPT_TEMPLATE`,
+`HiveAgent.system_prompt`)
+
+The single biggest lever. The `domain_policy` passed to the agent is
+already a fully assembled template — it includes the Rho-Bank policy,
+retrieval-specific guidance, the authentication protocol, and
+discoverable-tool workflows. Don't naively duplicate that content.
+
+What works:
+
+- Restructure prose into decision trees with explicit binary checks.
+- Add meta-instructions about how to reason: "before each tool call, state
+  the policy clause it satisfies"; "after each KB search, list the
+  documents you actually used".
+- Add few-shot tool-call examples for tricky discoverable tools.
+
+### 3. The reasoning loop (`HiveAgent._generate_next_message`)
+
+You can rewrite this method entirely. Patterns to try:
+
+- Self-verification: after the LLM proposes a tool call, run a cheap
+  second pass that checks the call against the policy.
+- Retry-on-tool-error with the error message included as context.
+- Multi-step planning: an explicit plan → execute → check loop instead
+  of one-shot generation.
+- Authentication state tracking: a flag in `state` so the agent stops
+  trying to verify after success.
+
+You can subclass `LLMAgentState` and add fields if you need cross-turn state.
+
+---
+
+## What you cannot edit
+
+- `eval/eval.sh`, `eval/run_eval.py`, `prepare.sh`
+- Any file inside `tau3-bench/`
+- `AGENT_LLM`, `USER_LLM`, temperature (0.0), or seed (300) — these are
+  fixed by the eval harness.
+
+You also cannot create helper modules — keep all code inside `agent.py`.
+This avoids merge conflicts when multiple agents iterate in parallel and
+keeps every commit a single-file diff.
+
+---
 
 ## Output format
 
+`eval/eval.sh` prints this block at the end:
+
 ```
 ---
-pass_at_1:        <value between 0.0 and 1.0>
-correct:          <number of passing tasks>
-total:            <total tasks evaluated>
-cost_usd:         <total API cost in USD>
+pass_at_1:        0.1234
+correct:          12
+total:            97
+cost_usd:         5.67
+retrieval:        bm25_grep
 ```
+
+`pass_at_1` is the optimization target. Higher is better.
+
+---
+
+## Logging results
+
+Append every iteration to `results.tsv` (do not commit it):
+
+```
+commit	pass_at_1	cost_usd	mode	retrieval	status	description
+a1b2c3d	0.1500	0.42	fast	bm25_grep	keep	baseline
+b2c3d4e	0.1500	0.41	fast	bm25_grep	revert	added few-shot — no change
+c3d4e5f	0.2000	0.55	fast	openai_embeddings_grep	keep	switched retrieval
+d4e5f6g	0.2200	2.31	full	openai_embeddings_grep	keep	gated on full split
+```
+
+Status: `keep`, `revert`, or `crash`.
+
+---
+
+## The experiment loop
+
+LOOP FOREVER:
+
+1. **THINK** — read `results.tsv` and the per-task PASS/FAIL breakdown
+   from the last run. Form one specific hypothesis.
+2. **EDIT** — make one focused change in `agent.py`.
+3. **RUN** — `bash eval/eval.sh > run.log 2>&1`
+4. **CHECK** — `grep "^pass_at_1:" run.log`. If empty the run crashed —
+   `tail -n 50 run.log` for the stack trace.
+5. **GATE** — if it improved on fast, run `EVAL_MODE=full bash eval/eval.sh`
+   to confirm on all 97 tasks before committing.
+6. **REVIEW** — for failing tasks, read the trace files in
+   `tau3-bench/data/simulations/hive_fast/` (or `hive_full/`).
+7. **COMMIT** — if it improved, `git add agent.py && git commit -m "..."`.
+   If not, `git reset --hard HEAD~1`.
+8. **RECORD** — append to `results.tsv` (do not commit `results.tsv`).
+9. **REPEAT** — go to step 1.
+
+---
+
+## Strategy notes
+
+- Always run a baseline before changing anything, then change one thing
+  at a time.
+- Read the FAILURES, not the passes. Per-task PASS/FAIL is printed by the
+  eval; trace files live under `tau3-bench/data/simulations/`.
+- `golden_retrieval` is a diagnostic. Run it once: the gap between your
+  golden score and your real score is how much retrieval is hurting you.
+  If both are low, the problem is reasoning, not search.
+- Combine retrieval changes with prompt changes — a new variant often
+  needs a new prompt structure to be effective.
+- A change that gains 1/20 on fast (5 percentage points) is likely noise.
+  Promote to `full` before celebrating.
+- Cost matters less than score. Optimize for pass^1.
+
+NEVER STOP. Once the loop begins, do not pause to ask. The loop runs until
+interrupted.

@@ -3,6 +3,8 @@ results.tsv
 __pycache__/
 *.pyc
 .env
+.hive/
 tau3-bench/
 *.egg-info/
 .venv/
+

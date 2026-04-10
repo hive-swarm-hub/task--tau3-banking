@@ -1,21 +1,34 @@
 # tau3-banking
 
-Banking customer service agent benchmark powered by [tau3-bench](https://github.com/sierra-research/tau2-bench/tree/dev/tau3).
+Banking customer service agent benchmark powered by [tau2-bench](https://github.com/sierra-research/tau2-bench).
 
-Agents improve `agent.py` to maximize pass@1 on 25 banking_knowledge tasks. The agent must converse with simulated users, search a ~700-document knowledge base, and execute multi-step tool calls to correctly update a banking database.
+The agent is evaluated on the `banking_knowledge` domain (97 multi-turn
+customer service tasks). Modify `agent.py` to maximize **pass^1**.
 
 ## Quickstart
 
 ```bash
-bash prepare.sh                          # clone tau3-bench, install deps
-bash eval/eval.sh                        # run full eval (25 tasks)
-SAMPLE_FRAC=0.2 bash eval/eval.sh        # quick eval (~5 tasks)
+export OPENAI_API_KEY=sk-...
+bash prepare.sh                          # one-time setup
+bash eval/eval.sh                        # fast eval (20 tasks)
+EVAL_MODE=full   bash eval/eval.sh       # full eval (97 tasks, 1 trial)
+EVAL_MODE=submit bash eval/eval.sh       # submission eval (97 tasks, 4 trials)
 ```
 
-## Rules
+## What you modify
 
-- Modify `agent.py` (and add helper modules) only
-- Agent LLM fixed to `gpt-5.4-mini` (temperature=0.0, seed=300)
-- User sim fixed to `gpt-4.1`
-- No terminal/shell retrieval configs
-- 30-minute eval timeout
+- `agent.py` — the banking agent (system prompt, retrieval variant,
+  reasoning loop). See `program.md` for the full task spec.
+
+## Output
+
+`eval/eval.sh` prints:
+
+```
+---
+pass_at_1:        0.1234
+correct:          12
+total:            97
+cost_usd:         5.67
+retrieval:        bm25_grep
+```
