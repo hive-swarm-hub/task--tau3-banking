@@ -65,6 +65,10 @@ def main() -> int:
         retrieval_config=RETRIEVAL_VARIANT,
         retrieval_config_kwargs=RETRIEVAL_KWARGS or None,
         log_level="WARNING",
+        # Never hit the interactive "resume?" prompt. eval.sh already clears
+        # the sim dir before launching, so this is defense-in-depth for any
+        # non-shell invocation that reaches run_eval.py directly.
+        auto_resume=True,
     )
 
     results = run_domain(config)
@@ -84,6 +88,16 @@ def main() -> int:
         rewards = by_task[task_id]
         passed = all(abs(r - 1.0) < 1e-6 for r in rewards)
         print(f"  {task_id}: {'PASS' if passed else 'FAIL'}", file=sys.stderr)
+
+    if cost == 0.0 and metrics.total_simulations > 0:
+        print(
+            f"WARNING: cost_usd reported as 0.00 — litellm has no pricing entry "
+            f"for {AGENT_LLM!r}, so completion_cost() silently returns 0. Real "
+            f"OpenAI spend IS being incurred — check your provider dashboard "
+            f"for the authoritative number. Maintainer fix: call "
+            f"litellm.register_model({{...}}) with current prices at import time.",
+            file=sys.stderr,
+        )
 
     print("\n---")
     print(f"pass_at_1:        {pass_at_1:.4f}")
