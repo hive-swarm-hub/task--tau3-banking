@@ -24,7 +24,6 @@ from tau2.data_model.message import (
     Message,
     MultiToolMessage,
     SystemMessage,
-    UserMessage,
 )
 from tau2.environment.tool import Tool
 from tau2.utils.llm_utils import generate
@@ -155,9 +154,6 @@ class HiveAgent(LLMAgent[LLMAgentState]):
         The default implementation appends the incoming message and calls
         the LLM in one shot.
         """
-        if isinstance(message, UserMessage) and getattr(message, "is_audio", False):
-            raise ValueError("Voice messages are not supported by HiveAgent")
-
         if isinstance(message, MultiToolMessage):
             state.messages.extend(message.tool_messages)
         else:
